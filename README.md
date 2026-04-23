@@ -18,117 +18,60 @@
 
 <img width="933" height="343" alt="image" src="https://github.com/user-attachments/assets/ad82052c-81a2-46a6-b48f-31cfadc0b20a" />  
 
-1.8.  Chon Vector store: Chọn mục đầu tiên Quick create a new vector store hoặc tạo sẵn trực tiếp từ S3   
+1.8.  Chọn Vector store: Chọn mục đầu tiên Quick create a new vector store hoặc tạo sẵn trực tiếp từ S3   
 
 1.9.  Nhấn Create, sau khi tạo xong thì sync  
 
 2.0.  Test với Knowledge Base, chọn Nova 2 Lite, kết quả cho thấy AI trả lời có dẫn nguồn và chính xác:
 <img width="915" height="304" alt="image" src="https://github.com/user-attachments/assets/ad264a6a-f6cd-4f14-8f47-44434d327d7e" />
 
-# Bước 2. Lamda truy vấn tới Bedrock thông qua VPC Interface Enpoints
-## Giai đoạn 1: Thiết lập Quyền (IAM Roles)
+### Bước 2: Thiết lập Quyền hạn (IAM Roles)
+Role thực thi cho Lambda được đặt tên là `Lambda-Bedrock-Query-Role`.
+* **Policies đính kèm:**
+    1. `AWSLambdaVPCAccessExecutionRole`: Cho phép Lambda truy cập tài nguyên trong VPC.
+    2. `Lambda-Bedrock-Query` (Inline Policy): Cho phép thao tác với Bedrock.
+* **Chi tiết quyền (Permissions):**
+    * `bedrock:RetrieveAndGenerate`: Truy vấn và tạo câu trả lời.
+    * `bedrock:Retrieve`: Truy xuất dữ liệu từ Knowledge Base.
+    * `bedrock:InvokeModel`: Gọi mô hình ngôn ngữ (Nova Lite).
+    * `bedrock:GetInferenceProfile`: Đọc hồ sơ định tuyến cho model Nova.
+<img width="1459" height="601" alt="image" src="https://github.com/user-attachments/assets/436a78bd-5456-40ed-b3ef-7537e3ae86b5" />
 
-### 2.1. IAM Role cho Lambda (`Lambda-Bedrock-Query-Role`)
-Role này cho phép Lambda chạy trong VPC và gọi dịch vụ Bedrock.
-* **Trust Relationship:** `lambda.amazonaws.com`
-* **Permissions Policies:**
-    1. `AWSLambdaVPCAccessExecutionRole` (Policy có sẵn của AWS).
-    2. **Inline Policy (`BedrockAccess`):**
-    ```json
-    {
-        "Version": "2012-10-17",
-        "Statement": [
-            {
-                "Effect": "Allow",
-                "Action": [
-                    "bedrock:RetrieveAndGenerate",
-                    "bedrock:Retrieve",
-                    "bedrock:InvokeModel"
-                ],
-                "Resource": "*"
-            }
-        ]
-    }
-    ```
+### Bước 3: Cấu hình Mạng (VPC Endpoint)
+* **VPC Interface Endpoint:** Tạo endpoint cho dịch vụ `bedrock-agent-runtime` để Lambda gọi Bedrock qua mạng nội bộ của AWS mà không cần Internet.
+* **Security Group:** Cấu hình cho phép cổng 443 (HTTPS) giữa Lambda và Endpoint.
 
-### 2.2. Kích hoạt Model Access
-1. Truy cập **Amazon Bedrock** tại `us-west-2`.
-2. Chọn **Model access** > **Manage model access**.
-3. Tích chọn: **Titan Text Embeddings V2** và **Claude 3 Haiku**.
-4. Nhấn **Save changes** (Chờ trạng thái hiện *Access granted*).
+### Bước 4: Triển khai Lambda Function
+* **Runtime:** Node.js 20.x.
+* **Mô hình sử dụng:** Amazon Nova Lite v1.0 (via Inference Profile).
+* **Prompt Template:** Tối ưu hóa để AI hiểu các từ viết tắt như "ip15", "mb", "ap".
 
----
-
-## 3. Giai đoạn 2: Hạ tầng Mạng (VPC & Security Groups)
-
-Để Lambda gọi được Bedrock mà không cần Internet, ta thiết lập hệ thống "đường hầm ngầm".
-
-### 3.1. Tạo Security Groups (SG)
-1. **Lambda-RAG-SG-minie:**
-   * Inbound: Trống.
-   * Outbound: All traffic (0.0.0.0/0).
-2. **Bedrock-Endpoint-SG-minie:**
-   * Inbound: Cổng **HTTPS (443)**, Source là `Lambda-RAG-SG-minie`.
-   * Outbound: All traffic.
-
-### 3.2. Tạo VPC Interface Endpoint
-1. Vào **VPC** > **Endpoints** > **Create endpoint**.
-2. **Service:** `com.amazonaws.us-west-2.bedrock-agent-runtime`.
-3. **VPC & Subnets:** Chọn VPC dự án và các **Private Subnets**.
-4. **Security Groups:** Chọn `Bedrock-Endpoint-SG-minie`.
-5. Nhấn **Create**.
-
----
-
-## 4. Giai đoạn 3: Cấu hình Lambda Function
-
-### 4.1. Khởi tạo Function
-* **Name:** `query-bedrock-minie`
-* **Runtime:** `Node.js 24.x`
-* **VPC Configuration:** Gắn VPC , Private Subnets và Security Group (`Lambda-RAG-SG-minie`).
-
-### 4.2. Mã nguồn (index.mjs)
-Đoạn code này xử lý việc nhận câu hỏi, truy vấn Knowledge Base và trả về câu trả lời kèm nguồn dẫn (Citations).
-
+**Đoạn mã xử lý chính:**
 ```javascript
-import { BedrockAgentRuntimeClient, RetrieveAndGenerateCommand } from "@aws-sdk/client-bedrock-agent-runtime";
-
-const client = new BedrockAgentRuntimeClient({ region: "us-west-2" });
-
-export const handler = async (event) => {
-    const userQuestion = event.question || "giá của 1 cái ip15 là bao nhiêu?";
-    const knowledgeBaseId = "AVHHNWOIBA"; 
-    const modelArn = "arn:aws:bedrock:us-west-2::foundation-model/anthropic.claude-3-haiku-20240307-v1:0";
-
-    try {
-        const command = new RetrieveAndGenerateCommand({
-            input: { text: userQuestion },
-            retrieveAndGenerateConfiguration: {
-                type: "KNOWLEDGE_BASE",
-                knowledgeBaseConfiguration: {
-                    knowledgeBaseId: knowledgeBaseId,
-                    modelArn: modelArn
+const modelArn = "arn:aws:bedrock:us-west-2:041627896542:inference-profile/us.amazon.nova-lite-v1:0";
+const command = new RetrieveAndGenerateCommand({
+    input: { text: userQuestion },
+    retrieveAndGenerateConfiguration: {
+        type: "KNOWLEDGE_BASE",
+        knowledgeBaseConfiguration: {
+            knowledgeBaseId: "AVHHNWOIBA",
+            modelArn: modelArn,
+            generationConfiguration: {
+                promptTemplate: {
+                    textPromptTemplate: "Bạn là trợ lý bán hàng shop mini_e. Dựa trên $search_results$, trả lời: $query$"
                 }
             }
-        });
-
-        const response = await client.send(command);
-        
-        return {
-            statusCode: 200,
-            body: {
-                answer: response.output.text,
-                citations: response.citations
-            }
-        };
-    } catch (error) {
-        console.error("Error:", error);
-        return { 
-            statusCode: 500, 
-            body: { error: error.message } 
-        };
+        }
     }
-};
+});
+```
+#### Kết quả:
+```Event Json
+{
+  "question": "Giá của iPhone 15 Pro Max là bao nhiêu?"
+}
+```
+<img width="1388" height="402" alt="image" src="https://github.com/user-attachments/assets/ba95ab92-cd5e-42a5-9525-0788e86632e0" />
 
 
 

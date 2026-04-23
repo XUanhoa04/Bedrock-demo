@@ -35,7 +35,8 @@ Role thực thi cho Lambda được đặt tên là `Lambda-Bedrock-Query-Role`.
     * `bedrock:Retrieve`: Truy xuất dữ liệu từ Knowledge Base.
     * `bedrock:InvokeModel`: Gọi mô hình ngôn ngữ (Nova Lite).
     * `bedrock:GetInferenceProfile`: Đọc hồ sơ định tuyến cho model Nova.
-<img width="1459" height="601" alt="image" src="https://github.com/user-attachments/assets/436a78bd-5456-40ed-b3ef-7537e3ae86b5" />
+<img width="1081" height="600" alt="image" src="https://github.com/user-attachments/assets/8f05edc9-6a16-49c8-bbc6-1edf837db175" />
+
 
 ### Bước 3: Cấu hình Mạng (VPC Endpoint)
 * **VPC Interface Endpoint:** Tạo endpoint cho dịch vụ `bedrock-agent-runtime` để Lambda gọi Bedrock qua mạng nội bộ của AWS mà không cần Internet.

@@ -66,11 +66,9 @@ const command = new RetrieveAndGenerateCommand({
 });
 ```
 #### Kết quả:
-```Event Json
-{
-  "question": "Giá của iPhone 15 Pro Max là bao nhiêu?"
-}
-```
+Test với query:
+<img width="1793" height="317" alt="image" src="https://github.com/user-attachments/assets/28016e73-4719-443c-9ed7-d5796ccc442c" />
+
 <img width="1388" height="402" alt="image" src="https://github.com/user-attachments/assets/ba95ab92-cd5e-42a5-9525-0788e86632e0" />
 
 
